@@ -1,310 +1,501 @@
-/**
- * ============================================================================
- *  PURCHASE ENTRY — WEB APP BACKEND  (v3)
- *  Author: Somnath Karmakar
- * ============================================================================
- *
- *  A standalone Google Apps Script web app that backs an external HTML form
- *  (hosted on GitHub Pages). It stores procurement orders in a Google Sheet,
- *  one row per order, and exposes a small JSON API.
- *
- *  DATA MODEL  — Sheet "Purchases", one row per order
- *  ----------------------------------------------------------------------------
- *    A  Timestamp     real date-time (dd-MM-yyyy HH:mm:ss)
- *    B  Receiver      person who raised the requirement
- *    C  Order ID      auto serial: REQ-0001, REQ-0002, ...
- *    D  Items         human readable, one per line:  "Cement | 5 Kg"
- *    E  Remarks       free text
- *    F  _ItemsJSON    HIDDEN helper. Exact items array so Edit reloads cleanly.
- *
- *  Each item is { name, qty, unit } where unit ∈ {Kg, Nos, Litre, g, <custom>}.
- *  Text fields (receiver / item names / remarks) are capitalized server-side.
- *  The whole sheet renders in the Jost font.
- *
- *  HTTP API
- *  ----------------------------------------------------------------------------
- *    GET  ?action=list          → { ok, orders:[...] }   newest 10, with edit state
- *    GET                        → { ok, msg }            health check
- *    POST { action:'create' }   → { ok, order }          assigns Order ID, saves
- *    POST { action:'update' }   → { ok, order } | { ok:false, error }
- *                                 edits an order ONLY within the edit window
- *
- *  BUSINESS RULES
- *  ----------------------------------------------------------------------------
- *    • Order IDs are issued under a script lock so concurrent submits never
- *      collide on the same serial number.
- *    • An order may be edited only within EDIT_WINDOW_MS of its creation.
- *      The window is enforced here on the server — the client cannot bypass it.
- *
- *  DEPLOYMENT
- *  ----------------------------------------------------------------------------
- *    Run any function once → Authorize → Deploy → New deployment → Web app →
- *    Execute as: Me → Who has access: Anyone → Deploy → copy the /exec URL.
- *    After ANY code change: Manage deployments → edit → Version: New version.
- * ============================================================================
- */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Purchase Entry</title>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy1:#081427; --navy2:#0d2148; --navy3:#0a1a36;
+    --glass:rgba(255,255,255,.055); --glass-brd:rgba(120,170,255,.20);
+    --blue:#5b9dff; --blue2:#2f6fe6; --gold:#e8c87a;
+    --ink:#eaf1ff; --muted:#9fb4d6; --ok:#5ad6a0; --danger:#ff7a8a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Jost',sans-serif;}
+  body{
+    min-height:100vh;color:var(--ink);padding:22px 14px 50px;
+    background:
+      radial-gradient(1100px 600px at 10% -10%, #14336b 0%, transparent 55%),
+      radial-gradient(900px 500px at 110% 10%, #123e7a 0%, transparent 50%),
+      linear-gradient(160deg, var(--navy1), var(--navy2) 55%, var(--navy3));
+    background-attachment:fixed;
+  }
+  .wrap{max-width:760px;margin:0 auto;}
 
-/* ----------------------------------------------------------------------------
- *  CONFIGURATION
- * ------------------------------------------------------------------------- */
-var CONFIG = {
-  SHEET_NAME:     'Purchases',
-  HEADERS:        ['Timestamp', 'Receiver', 'Order ID', 'Items', 'Remarks', '_ItemsJSON'],
-  EDIT_WINDOW_MS: 2 * 60 * 60 * 1000,   // 2 hours
-  ID_PREFIX:      'REQ-',
-  ID_PAD:         4,
-  FONT:           'Jost',
-  TS_FORMAT:      'dd-MM-yyyy HH:mm:ss',
-  DEFAULT_UNIT:   'Nos',
-  LOCK_WAIT_MS:   5000
+  /* Header */
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;}
+  .brand{display:flex;align-items:center;gap:11px;}
+  .logo{
+    width:42px;height:42px;border-radius:12px;flex-shrink:0;
+    background:linear-gradient(135deg,var(--blue),var(--blue2));
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.2rem;color:#fff;
+    box-shadow:0 8px 24px -8px rgba(91,157,255,.7), inset 0 0 0 1px rgba(232,200,122,.35);
+  }
+  h1{font-size:1.4rem;font-weight:600;letter-spacing:-.2px;}
+  .h-sub{font-size:.78rem;color:var(--muted);font-weight:400;}
+  .oid-badge{
+    background:linear-gradient(135deg, rgba(232,200,122,.18), rgba(91,157,255,.14));
+    border:1px solid rgba(232,200,122,.45);color:var(--gold);
+    padding:7px 15px;border-radius:30px;font-weight:600;font-size:.82rem;letter-spacing:.5px;white-space:nowrap;
+  }
+
+  /* Card */
+  .card{
+    background:var(--glass);border:1px solid var(--glass-brd);border-radius:20px;
+    padding:24px 22px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 24px 60px -30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06);
+    margin-bottom:22px;
+  }
+  .card-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:10px;}
+  .card-title h2{font-size:1.05rem;font-weight:600;}
+
+  label{display:block;font-size:.78rem;font-weight:500;color:var(--muted);margin:0 0 7px 2px;}
+  input,textarea,select{
+    width:100%;padding:12px 14px;border:1px solid var(--glass-brd);border-radius:12px;
+    font-size:.95rem;background:rgba(8,18,40,.55);color:var(--ink);transition:.18s;
+  }
+  input::placeholder,textarea::placeholder{color:#6b80a6;}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--blue);background:rgba(8,18,40,.85);box-shadow:0 0 0 4px rgba(91,157,255,.18);}
+  select{appearance:none;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 16px) center,calc(100% - 11px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:30px;}
+  select option{background:#0d2148;color:var(--ink);}
+  .field{margin-bottom:18px;}
+  textarea{resize:vertical;min-height:64px;}
+
+  /* Items */
+  .items-head label{margin-bottom:11px;color:var(--blue);font-weight:600;font-size:.86rem;}
+  .item-row{display:flex;gap:9px;margin-bottom:10px;align-items:center;flex-wrap:wrap;}
+  .item-row .name{flex:1 1 150px;min-width:120px;}
+  .item-row .qty{flex:0 0 70px;width:70px;text-align:center;}
+  .item-row .unit{flex:0 0 104px;width:104px;}
+  .item-row .unit-custom{flex:0 0 92px;width:92px;}
+  .del{
+    flex:0 0 42px;width:42px;height:46px;border:1px solid rgba(255,122,138,.3);border-radius:10px;
+    background:rgba(255,122,138,.1);color:var(--danger);font-size:1.2rem;cursor:pointer;transition:.15s;line-height:1;
+  }
+  .del:hover{background:rgba(255,122,138,.2);}
+  .add{
+    width:100%;padding:11px;border:1px dashed rgba(91,157,255,.5);background:rgba(91,157,255,.07);
+    color:var(--blue);border-radius:12px;font-weight:500;font-size:.9rem;cursor:pointer;margin-top:4px;transition:.15s;
+  }
+  .add:hover{background:rgba(91,157,255,.14);}
+
+  /* Buttons */
+  .btn-row{display:flex;gap:10px;margin-top:22px;}
+  .submit{
+    flex:1;padding:15px;border:none;border-radius:14px;cursor:pointer;
+    background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;
+    font-size:1rem;font-weight:600;letter-spacing:.3px;transition:.18s;
+    box-shadow:0 12px 28px -12px rgba(47,111,230,.8), inset 0 0 0 1px rgba(232,200,122,.3);
+    display:flex;align-items:center;justify-content:center;gap:9px;
+  }
+  .submit:hover{transform:translateY(-2px);}
+  .submit:disabled{opacity:.7;cursor:not-allowed;transform:none;}
+  .cancel{
+    padding:15px 18px;border:1px solid var(--glass-brd);border-radius:14px;background:transparent;
+    color:var(--muted);font-weight:500;cursor:pointer;display:none;transition:.15s;
+  }
+  .cancel:hover{background:rgba(255,255,255,.05);color:var(--ink);}
+  .cancel.show{display:block;}
+  .spin{width:17px;height:17px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:rot .7s linear infinite;display:none;}
+  .spin.show{display:inline-block;}
+  @keyframes rot{to{transform:rotate(360deg);}}
+
+  /* Toast */
+  .toast{margin-top:16px;padding:13px 15px;border-radius:12px;font-size:.88rem;font-weight:500;display:none;}
+  .toast.show{display:block;animation:pop .3s ease;}
+  .toast.ok{background:rgba(90,214,160,.12);border:1px solid rgba(90,214,160,.4);color:var(--ok);}
+  .toast.err{background:rgba(255,122,138,.12);border:1px solid rgba(255,122,138,.4);color:var(--danger);}
+  @keyframes pop{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+  /* Recent list */
+  .recent-wrap{position:relative;min-height:90px;}
+  .order{
+    border:1px solid var(--glass-brd);border-radius:15px;padding:15px 16px;margin-bottom:12px;
+    background:rgba(8,18,40,.4);transition:.18s;
+  }
+  .order:hover{border-color:rgba(91,157,255,.4);}
+  .order-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;flex-wrap:wrap;}
+  .order-id{font-weight:600;color:var(--gold);font-size:.92rem;letter-spacing:.4px;}
+  .order-recv{color:var(--ink);font-size:.92rem;}
+  .order-recv b{color:var(--muted);font-weight:400;font-size:.8rem;}
+  .order-time{font-size:.74rem;color:var(--muted);}
+  .items-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+  .chip{
+    background:rgba(91,157,255,.12);border:1px solid rgba(91,157,255,.25);color:#cfe0ff;
+    padding:4px 10px;border-radius:8px;font-size:.8rem;
+  }
+  .chip span{color:var(--gold);font-weight:600;margin-left:4px;}
+  .order-remarks{font-size:.82rem;color:var(--muted);margin-top:5px;}
+  .order-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px;flex-wrap:wrap;}
+  .countdown{font-size:.76rem;color:var(--ok);font-weight:500;}
+  .edit-btn{
+    border:1px solid rgba(232,200,122,.45);background:rgba(232,200,122,.1);color:var(--gold);
+    padding:7px 16px;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;transition:.15s;
+  }
+  .edit-btn:hover{background:rgba(232,200,122,.2);}
+  .locked-tag{font-size:.78rem;color:#7184a8;display:flex;align-items:center;gap:5px;}
+
+  /* Loader */
+  .loader{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    background:rgba(8,18,40,.35);backdrop-filter:blur(2px);border-radius:14px;z-index:5;
+  }
+  .loader.hide{display:none;}
+  .ring{width:38px;height:38px;border:3.5px solid rgba(91,157,255,.25);border-top-color:var(--blue);border-radius:50%;animation:rot .8s linear infinite;}
+  .loader p{font-size:.82rem;color:var(--muted);letter-spacing:.3px;}
+  .empty{text-align:center;color:var(--muted);font-size:.86rem;padding:24px 0;}
+
+  .foot{text-align:center;margin-top:22px;font-size:.72rem;color:#6b80a6;}
+
+  @media (max-width:480px){
+    h1{font-size:1.22rem;}
+    .card{padding:20px 16px;}
+    .item-row .name{flex:1 1 100%;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">P</div>
+      <div>
+        <h1>Purchase Entry</h1>
+        <div class="h-sub">SP Mines &middot; Procurement</div>
+      </div>
+    </div>
+    <span class="oid-badge" id="orderId">REQ-••••</span>
+  </div>
+
+  <!-- Entry / Edit form -->
+  <div class="card">
+    <div class="card-title">
+      <h2 id="formTitle">New Purchase</h2>
+    </div>
+
+    <div class="field">
+      <label>Requirement Receiver Name</label>
+      <input type="text" id="receiver" placeholder="e.g. Sam" autocomplete="off">
+    </div>
+
+    <div class="field items-head">
+      <label>Items</label>
+      <div id="itemList"></div>
+      <button class="add" id="addItem" type="button">+ Add Item</button>
+    </div>
+
+    <div class="field">
+      <label>Remarks</label>
+      <textarea id="remarks" placeholder="Urgency, specifications, notes…"></textarea>
+    </div>
+
+    <div class="btn-row">
+      <button class="submit" id="submitBtn" type="button">
+        <span class="spin" id="spin"></span>
+        <span id="submitLabel">Submit Purchase</span>
+      </button>
+      <button class="cancel" id="cancelBtn" type="button">Cancel</button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <!-- Recent 10 -->
+  <div class="card">
+    <div class="card-title">
+      <h2>Recent Purchases</h2>
+      <span class="h-sub">Last 10</span>
+    </div>
+    <div class="recent-wrap">
+      <div class="loader" id="loader"><div class="ring"></div><p>Loading purchases…</p></div>
+      <div id="recentList"></div>
+    </div>
+  </div>
+
+  <p class="foot">Built by Somnath Karmakar &middot; Editing window: 2 hours</p>
+</div>
+
+<script>
+/* ============================================================================
+ *  PURCHASE ENTRY — FRONTEND
+ *  Talks to the Apps Script web app. Create / list / edit (within 2 hours).
+ * ========================================================================= */
+
+/* ---- Configuration ----------------------------------------------------- */
+const CONFIG = {
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbwApN9Lqef2hc6TxyS5_ptbLplpUsvqlNolFucZfN-NNSlqfhvPsBm3dvVHngxtnwdX/exec',
+  EDIT_WINDOW_MS: 2 * 60 * 60 * 1000,            // mirror of the server rule
+  UNITS: ['Kg', 'Nos', 'Litre', 'g'],            // presets; "Custom" is added in UI
+  CUSTOM: '__custom'
 };
 
-// Column positions (1-based). Single source of truth for the layout.
-var COL = { TS: 1, RECEIVER: 2, ORDER_ID: 3, ITEMS: 4, REMARKS: 5, JSON: 6 };
+/* ---- Tiny DOM helper --------------------------------------------------- */
+const $ = (id) => document.getElementById(id);
 
-/* ----------------------------------------------------------------------------
- *  HTTP ENTRY POINTS
- * ------------------------------------------------------------------------- */
-function doGet(e) {
-  var action = (e && e.parameter && e.parameter.action) || '';
-  var sheet = SheetRepo.get();
-
-  if (action === 'list') return Api.json(OrderService.list(sheet));
-  return Api.json({ ok: true, msg: 'Purchase backend live' });
-}
-
-function doPost(e) {
-  try {
-    var payload = JSON.parse(e.postData.contents);
-    var sheet = SheetRepo.get();
-
-    switch (payload.action) {
-      case 'update': return Api.json(OrderService.update(sheet, payload));
-      case 'list':   return Api.json(OrderService.list(sheet));
-      case 'create':
-      default:       return Api.json(OrderService.create(sheet, payload));
-    }
-  } catch (err) {
-    return Api.json({ ok: false, error: String(err) });
-  }
-}
-
-/* ----------------------------------------------------------------------------
- *  API HELPER
- * ------------------------------------------------------------------------- */
-var Api = {
-  json: function (obj) {
-    return ContentService
-      .createTextOutput(JSON.stringify(obj))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
+/* ---- App state --------------------------------------------------------- */
+const state = {
+  editingId: null,   // null = create mode; otherwise the Order ID being edited
+  orders: [],        // last fetched orders
+  ticker: null       // countdown interval handle
 };
 
-/* ----------------------------------------------------------------------------
- *  SHEET REPOSITORY  — owns the physical sheet & its formatting
- * ------------------------------------------------------------------------- */
-var SheetRepo = {
-  get: function () {
-    var ss = SpreadsheetApp.getActive();
-    var sh = ss.getSheetByName(CONFIG.SHEET_NAME) || ss.insertSheet(CONFIG.SHEET_NAME);
-    if (sh.getLastRow() === 0) this._initialise(sh);
-    return sh;
+/* ============================================================================
+ *  ITEM ROWS  (name + qty + unit, with optional custom unit)
+ * ========================================================================= */
+const ItemRows = {
+  list: () => $('itemList'),
+
+  add(item) {
+    const name = item ? item.name : '';
+    const qty  = item ? item.qty  : '';
+    const unit = item ? item.unit : 'Nos';
+    const isCustom = unit && CONFIG.UNITS.indexOf(unit) === -1;
+
+    const options = CONFIG.UNITS.map(u =>
+      `<option value="${u}" ${(!isCustom && unit === u) ? 'selected' : ''}>${u}</option>`
+    ).join('') + `<option value="${CONFIG.CUSTOM}" ${isCustom ? 'selected' : ''}>Custom…</option>`;
+
+    const row = document.createElement('div');
+    row.className = 'item-row';
+    row.innerHTML = `
+      <input class="name" type="text" placeholder="Item name" value="${esc(name)}" autocomplete="off">
+      <input class="qty" type="number" min="0" step="any" placeholder="Qty" value="${esc(qty)}">
+      <select class="unit">${options}</select>
+      <input class="unit-custom" type="text" placeholder="Unit" value="${isCustom ? esc(unit) : ''}" ${isCustom ? '' : 'hidden'}>
+      <button class="del" type="button" title="Remove">&times;</button>`;
+
+    const select = row.querySelector('.unit');
+    const custom = row.querySelector('.unit-custom');
+    select.addEventListener('change', () => {
+      const showCustom = select.value === CONFIG.CUSTOM;
+      custom.hidden = !showCustom;
+      if (showCustom) custom.focus();
+    });
+
+    row.querySelector('.del').onclick = () => {
+      if (this.list().children.length > 1) row.remove();
+      else { row.querySelector('.name').value = ''; row.querySelector('.qty').value = ''; }
+    };
+
+    this.list().appendChild(row);
   },
 
-  _initialise: function (sh) {
-    sh.appendRow(CONFIG.HEADERS);
-    sh.getRange(1, 1, 1, CONFIG.HEADERS.length)
-      .setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
-    sh.setFrozenRows(1);
-    sh.getRange('A1:F2000').setFontFamily(CONFIG.FONT);
-    sh.hideColumns(COL.JSON);
-    sh.setColumnWidth(COL.ITEMS, 240);
-  },
-
-  styleRow: function (sh, rowIndex) {
-    sh.getRange(rowIndex, 1, 1, CONFIG.HEADERS.length)
-      .setFontFamily(CONFIG.FONT).setVerticalAlignment('middle');
-    sh.getRange(rowIndex, COL.TS).setNumberFormat(CONFIG.TS_FORMAT);
-    sh.getRange(rowIndex, COL.ITEMS).setWrap(true);
-  },
-
-  /** Find the 1-based sheet row for an Order ID, or -1 if absent. */
-  findRowByOrderId: function (sh, orderId) {
-    var last = sh.getLastRow();
-    if (last < 2) return -1;
-    var ids = sh.getRange(2, COL.ORDER_ID, last - 1, 1).getValues();
-    for (var i = 0; i < ids.length; i++) {
-      if (String(ids[i][0]) === String(orderId)) return i + 2;
-    }
-    return -1;
-  },
-
-  /** Next serial Order ID, derived from the highest existing number. */
-  nextOrderId: function (sh) {
-    var last = sh.getLastRow();
-    var max = 0;
-    if (last >= 2) {
-      var ids = sh.getRange(2, COL.ORDER_ID, last - 1, 1).getValues();
-      for (var i = 0; i < ids.length; i++) {
-        var m = /(\d+)\s*$/.exec(String(ids[i][0] || ''));
-        if (m) { var n = parseInt(m[1], 10); if (n > max) max = n; }
-      }
-    }
-    return CONFIG.ID_PREFIX + String(max + 1).padStart(CONFIG.ID_PAD, '0');
-  }
-};
-
-/* ----------------------------------------------------------------------------
- *  ORDER SERVICE  — business logic (create / list / update)
- * ------------------------------------------------------------------------- */
-var OrderService = {
-
-  list: function (sh) {
-    var last = sh.getLastRow();
-    var orders = [];
-    if (last >= 2) {
-      var rows = sh.getRange(2, 1, last - 1, CONFIG.HEADERS.length).getValues();
-      for (var i = 0; i < rows.length; i++) {
-        if (!rows[i][COL.ORDER_ID - 1]) continue;
-        orders.push(OrderMapper.fromRow(rows[i]));
-      }
-    }
-    orders.sort(function (a, b) { return new Date(b.createdAt) - new Date(a.createdAt); });
-    return { ok: true, orders: orders.slice(0, 10) };
-  },
-
-  create: function (sh, payload) {
-    var lock = LockService.getScriptLock();
-    lock.waitLock(CONFIG.LOCK_WAIT_MS);
-    try {
-      var order = {
-        orderId:   SheetRepo.nextOrderId(sh),
-        createdAt: new Date(),
-        receiver:  Text.capitalize(payload.receiver),
-        remarks:   Text.capitalize(payload.remarks),
-        items:     Items.clean(payload.items)
+  read() {
+    return [...this.list().querySelectorAll('.item-row')].map(r => {
+      const select = r.querySelector('.unit');
+      const unit = select.value === CONFIG.CUSTOM
+        ? r.querySelector('.unit-custom').value.trim()
+        : select.value;
+      return {
+        name: r.querySelector('.name').value.trim(),
+        qty:  r.querySelector('.qty').value.trim(),
+        unit: unit || 'Nos'
       };
-
-      sh.appendRow([
-        order.createdAt,
-        order.receiver,
-        order.orderId,
-        Items.toReadable(order.items),
-        order.remarks,
-        JSON.stringify(order.items)
-      ]);
-      SheetRepo.styleRow(sh, sh.getLastRow());
-
-      return { ok: true, order: OrderMapper.toClient(order, order.createdAt) };
-    } finally {
-      lock.releaseLock();
-    }
+    }).filter(i => i.name !== '');
   },
 
-  update: function (sh, payload) {
-    if (!payload.orderId) return { ok: false, error: 'No orderId supplied.' };
-
-    var rowIndex = SheetRepo.findRowByOrderId(sh, payload.orderId);
-    if (rowIndex < 0) return { ok: false, error: 'Order ' + payload.orderId + ' was not found.' };
-
-    // Enforce the edit window, anchored to the (immutable) creation timestamp.
-    var createdAt = sh.getRange(rowIndex, COL.TS).getValue();
-    var age = Date.now() - new Date(createdAt).getTime();
-    if (isNaN(age) || age > CONFIG.EDIT_WINDOW_MS) {
-      return { ok: false, error: 'Editing window closed. The 2-hour limit has passed and this order can no longer be edited.' };
-    }
-
-    var items    = Items.clean(payload.items);
-    var receiver = Text.capitalize(payload.receiver);
-    var remarks  = Text.capitalize(payload.remarks);
-
-    // Timestamp and Order ID are immutable; only editable fields change.
-    sh.getRange(rowIndex, COL.RECEIVER).setValue(receiver);
-    sh.getRange(rowIndex, COL.ITEMS).setValue(Items.toReadable(items));
-    sh.getRange(rowIndex, COL.REMARKS).setValue(remarks);
-    sh.getRange(rowIndex, COL.JSON).setValue(JSON.stringify(items));
-    SheetRepo.styleRow(sh, rowIndex);
-
-    var row = sh.getRange(rowIndex, 1, 1, CONFIG.HEADERS.length).getValues()[0];
-    return { ok: true, order: OrderMapper.fromRow(row) };
+  reset(items) {
+    this.list().innerHTML = '';
+    if (items && items.length) items.forEach(i => this.add(i));
+    else this.add();
   }
 };
 
-/* ----------------------------------------------------------------------------
- *  MAPPERS  — translate between sheet rows and client-facing objects
- * ------------------------------------------------------------------------- */
-var OrderMapper = {
-  // Sheet row → client object (used by list & update responses)
-  fromRow: function (r) {
-    var createdIso = Time.toIso(r[COL.TS - 1]);
-    var items = [];
-    try { items = JSON.parse(r[COL.JSON - 1] || '[]'); } catch (e) { items = []; }
-    return this._withEditState({
-      orderId:   r[COL.ORDER_ID - 1],
-      receiver:  r[COL.RECEIVER - 1],
-      items:     items,
-      remarks:   r[COL.REMARKS - 1],
-      createdAt: createdIso
-    }, createdIso);
+/* ============================================================================
+ *  FORM  (mode switching + submit)
+ * ========================================================================= */
+const Form = {
+  toCreateMode() {
+    state.editingId = null;
+    $('formTitle').textContent = 'New Purchase';
+    $('cancelBtn').classList.remove('show');
+    $('submitLabel').textContent = 'Submit Purchase';
+    $('orderId').textContent = 'REQ-••••';
+    $('receiver').value = '';
+    $('remarks').value = '';
+    ItemRows.reset();
   },
 
-  // In-memory order → client object (used by create response)
-  toClient: function (order, createdAtDate) {
-    var createdIso = Time.toIso(createdAtDate);
-    return this._withEditState({
-      orderId:   order.orderId,
-      receiver:  order.receiver,
-      items:     order.items,
-      remarks:   order.remarks,
-      createdAt: createdIso
-    }, createdIso);
+  toEditMode(order) {
+    state.editingId = order.orderId;
+    $('formTitle').textContent = 'Edit Purchase';
+    $('cancelBtn').classList.add('show');
+    $('submitLabel').textContent = 'Update Purchase';
+    $('orderId').textContent = order.orderId;
+    $('receiver').value = order.receiver || '';
+    $('remarks').value = order.remarks || '';
+    ItemRows.reset(order.items);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
-  _withEditState: function (obj, createdIso) {
-    var msLeft = CONFIG.EDIT_WINDOW_MS - (Date.now() - new Date(createdIso).getTime());
-    if (isNaN(msLeft)) msLeft = 0;
-    obj.editable = msLeft > 0;
-    obj.msLeft = Math.max(0, msLeft);
-    return obj;
-  }
-};
+  submit() {
+    const receiver = $('receiver').value.trim();
+    const remarks  = $('remarks').value.trim();
+    const items    = ItemRows.read();
 
-/* ----------------------------------------------------------------------------
- *  VALUE HELPERS
- * ------------------------------------------------------------------------- */
-var Text = {
-  // Capitalize the first letter of each word, leaving the rest as typed.
-  capitalize: function (s) {
-    return String(s == null ? '' : s).trim()
-      .replace(/\b\w/g, function (c) { return c.toUpperCase(); });
-  }
-};
+    if (!receiver)        return Toast.show('Please enter the receiver name.', 'err');
+    if (items.length === 0) return Toast.show('Please add at least one item.', 'err');
 
-var Items = {
-  // Normalize the raw items array from the client into clean {name, qty, unit}.
-  clean: function (rawItems) {
-    return (rawItems || [])
-      .map(function (i) {
-        return {
-          name: Text.capitalize((i.name || '').trim()),
-          qty:  String(i.qty == null ? '' : i.qty).trim(),
-          unit: String(i.unit == null ? '' : i.unit).trim() || CONFIG.DEFAULT_UNIT
-        };
+    const body = state.editingId
+      ? { action: 'update', orderId: state.editingId, receiver, items, remarks }
+      : { action: 'create', receiver, items, remarks };
+
+    this._setLoading(true);
+    Api.post(body)
+      .then(res => {
+        if (!res.ok) return Toast.show(res.error || 'Request failed.', 'err');
+        const n = res.order.items.length;
+        Toast.show(
+          state.editingId
+            ? `Updated ${res.order.orderId}.`
+            : `Saved ${res.order.orderId} (${n} item${n > 1 ? 's' : ''}).`,
+          'ok'
+        );
+        this.toCreateMode();
+        Recent.load();
       })
-      .filter(function (i) { return i.name !== ''; });
+      .catch(err => Toast.show('Network error — check the URL / access settings. ' + err, 'err'))
+      .finally(() => this._setLoading(false));
   },
 
-  // "Cement | 5 Kg" per line.
-  toReadable: function (items) {
-    return items.map(function (i) {
-      return i.name + ' | ' + i.qty + ' ' + i.unit;
-    }).join('\n');
+  _setLoading(on) {
+    $('submitBtn').disabled = on;
+    $('spin').classList.toggle('show', on);
   }
 };
 
-var Time = {
-  toIso: function (v) {
-    if (v instanceof Date) return v.toISOString();
-    return String(v || '');
+/* ============================================================================
+ *  RECENT PURCHASES  (render + live 2-hour countdown)
+ * ========================================================================= */
+const Recent = {
+  load() {
+    $('loader').classList.remove('hide');
+    Api.get('?action=list')
+      .then(res => { state.orders = (res.ok && res.orders) ? res.orders : []; this.render(); })
+      .catch(() => { $('recentList').innerHTML = '<div class="empty">Couldn\'t load. Check the URL / access settings.</div>'; })
+      .finally(() => $('loader').classList.add('hide'));
+  },
+
+  render() {
+    const box = $('recentList');
+    if (!state.orders.length) { box.innerHTML = '<div class="empty">No purchases yet.</div>'; return; }
+
+    box.innerHTML = state.orders.map(o => {
+      const time = o.createdAt
+        ? new Date(o.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+        : '';
+      const msLeft = this._msLeft(o);
+      const chips = (o.items || []).map(i =>
+        `<span class="chip">${esc(i.name)}<span>×${esc(String(i.qty))} ${esc(i.unit || '')}</span></span>`
+      ).join('');
+      const remarks = o.remarks ? `<div class="order-remarks">📝 ${esc(o.remarks)}</div>` : '';
+      const foot = msLeft > 0
+        ? `<span class="countdown" data-cd="${esc(o.orderId)}">⏳ Editable for ${clock(msLeft)}</span>
+           <button class="edit-btn" data-edit="${esc(o.orderId)}">Edit</button>`
+        : `<span class="locked-tag">🔒 Locked (2 hours passed)</span>`;
+
+      return `<div class="order">
+        <div class="order-top">
+          <span class="order-id">${esc(o.orderId)}</span>
+          <span class="order-time">${time}</span>
+        </div>
+        <div class="order-recv"><b>Receiver:</b> ${esc(o.receiver || '-')}</div>
+        <div class="items-chips">${chips}</div>
+        ${remarks}
+        <div class="order-foot">${foot}</div>
+      </div>`;
+    }).join('');
+
+    box.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.onclick = () => {
+        const o = state.orders.find(x => String(x.orderId) === btn.getAttribute('data-edit'));
+        if (!o) return;
+        if (this._msLeft(o) <= 0) { Toast.show('Editing window has closed (2 hours passed).', 'err'); this.load(); return; }
+        Form.toEditMode(o);
+      };
+    });
+  },
+
+  // Live remaining edit time, computed from the creation timestamp.
+  _msLeft(o) {
+    if (!o.createdAt) return 0;
+    return Math.max(0, CONFIG.EDIT_WINDOW_MS - (Date.now() - new Date(o.createdAt).getTime()));
+  },
+
+  startTicker() {
+    if (state.ticker) clearInterval(state.ticker);
+    state.ticker = setInterval(() => {
+      let rerender = false;
+      state.orders.forEach(o => {
+        const el = document.querySelector(`[data-cd="${cssEsc(o.orderId)}"]`);
+        const ms = this._msLeft(o);
+        if (el) {
+          if (ms <= 0) rerender = true;
+          else el.textContent = '⏳ Editable for ' + clock(ms);
+        }
+      });
+      if (rerender) this.render();
+    }, 1000);
   }
 };
+
+/* ============================================================================
+ *  API CLIENT
+ * ========================================================================= */
+const Api = {
+  get(qs) {
+    return fetch(CONFIG.GAS_URL + (qs || '')).then(r => r.json());
+  },
+  post(body) {
+    return fetch(CONFIG.GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids a CORS preflight
+      body: JSON.stringify(body)
+    }).then(r => r.json());
+  }
+};
+
+/* ============================================================================
+ *  TOAST
+ * ========================================================================= */
+const Toast = {
+  show(message, kind) {
+    const t = $('toast');
+    t.textContent = message;
+    t.className = 'toast show ' + (kind || 'ok');
+    if (kind === 'ok') setTimeout(() => t.classList.remove('show'), 4000);
+  }
+};
+
+/* ============================================================================
+ *  UTILITIES
+ * ========================================================================= */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+function clock(ms) {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return (h > 0 ? pad(h) + ':' : '') + pad(m) + ':' + pad(s);
+}
+
+/* ============================================================================
+ *  WIRE-UP & INIT
+ * ========================================================================= */
+$('addItem').onclick = () => ItemRows.add();
+$('submitBtn').onclick = () => Form.submit();
+$('cancelBtn').onclick = () => Form.toCreateMode();
+
+ItemRows.reset();   // start with one empty row
+Recent.load();      // fetch the last 10
+Recent.startTicker();
+</script>
+</body>
+</html>
