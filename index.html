@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Purchase Entry</title>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ===== Paste your NEW /exec URL below (this is a fresh project) ===== */
+  :root{
+    --navy1:#081427; --navy2:#0d2148; --navy3:#0a1a36;
+    --glass:rgba(255,255,255,.055); --glass-brd:rgba(120,170,255,.20);
+    --blue:#5b9dff; --blue2:#2f6fe6; --gold:#e8c87a;
+    --ink:#eaf1ff; --muted:#9fb4d6; --ok:#5ad6a0; --danger:#ff7a8a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Jost',sans-serif;}
+  body{
+    min-height:100vh;color:var(--ink);padding:22px 14px 50px;
+    background:
+      radial-gradient(1100px 600px at 10% -10%, #14336b 0%, transparent 55%),
+      radial-gradient(900px 500px at 110% 10%, #123e7a 0%, transparent 50%),
+      linear-gradient(160deg, var(--navy1), var(--navy2) 55%, var(--navy3));
+    background-attachment:fixed;
+  }
+  .wrap{max-width:760px;margin:0 auto;}
+
+  /* Header */
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;}
+  .brand{display:flex;align-items:center;gap:11px;}
+  .logo{
+    width:42px;height:42px;border-radius:12px;flex-shrink:0;
+    background:linear-gradient(135deg,var(--blue),var(--blue2));
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.2rem;color:#fff;
+    box-shadow:0 8px 24px -8px rgba(91,157,255,.7), inset 0 0 0 1px rgba(232,200,122,.35);
+  }
+  h1{font-size:1.4rem;font-weight:600;letter-spacing:-.2px;}
+  .h-sub{font-size:.78rem;color:var(--muted);font-weight:400;}
+  .oid-badge{
+    background:linear-gradient(135deg, rgba(232,200,122,.18), rgba(91,157,255,.14));
+    border:1px solid rgba(232,200,122,.45);color:var(--gold);
+    padding:7px 15px;border-radius:30px;font-weight:600;font-size:.82rem;letter-spacing:.5px;white-space:nowrap;
+  }
+
+  /* Card */
+  .card{
+    background:var(--glass);border:1px solid var(--glass-brd);border-radius:20px;
+    padding:24px 22px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 24px 60px -30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06);
+    margin-bottom:22px;
+  }
+  .card-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:10px;}
+  .card-title h2{font-size:1.05rem;font-weight:600;}
+  .edit-flag{font-size:.74rem;color:var(--gold);border:1px solid rgba(232,200,122,.4);padding:4px 10px;border-radius:20px;display:none;}
+  .edit-flag.show{display:inline-block;}
+
+  label{display:block;font-size:.78rem;font-weight:500;color:var(--muted);margin:0 0 7px 2px;}
+  input,textarea{
+    width:100%;padding:12px 14px;border:1px solid var(--glass-brd);border-radius:12px;
+    font-size:.95rem;background:rgba(8,18,40,.55);color:var(--ink);transition:.18s;
+  }
+  input::placeholder,textarea::placeholder{color:#6b80a6;}
+  input:focus,textarea:focus{outline:none;border-color:var(--blue);background:rgba(8,18,40,.8);box-shadow:0 0 0 4px rgba(91,157,255,.18);}
+  .field{margin-bottom:18px;}
+  textarea{resize:vertical;min-height:64px;}
+
+  .items-head label{margin-bottom:11px;color:var(--blue);font-weight:600;font-size:.86rem;}
+  .item-row{display:flex;gap:9px;margin-bottom:9px;align-items:center;}
+  .item-row .name{flex:1;min-width:0;}
+  .item-row .qty{width:84px;text-align:center;flex-shrink:0;}
+  .del{
+    width:40px;height:43px;flex-shrink:0;border:1px solid rgba(255,122,138,.3);border-radius:10px;
+    background:rgba(255,122,138,.1);color:var(--danger);font-size:1.2rem;cursor:pointer;transition:.15s;line-height:1;
+  }
+  .del:hover{background:rgba(255,122,138,.2);}
+  .add{
+    width:100%;padding:11px;border:1px dashed rgba(91,157,255,.5);background:rgba(91,157,255,.07);
+    color:var(--blue);border-radius:12px;font-weight:500;font-size:.9rem;cursor:pointer;margin-top:3px;transition:.15s;
+  }
+  .add:hover{background:rgba(91,157,255,.14);}
+
+  .btn-row{display:flex;gap:10px;margin-top:22px;}
+  .submit{
+    flex:1;padding:15px;border:none;border-radius:14px;cursor:pointer;
+    background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;
+    font-size:1rem;font-weight:600;letter-spacing:.3px;transition:.18s;
+    box-shadow:0 12px 28px -12px rgba(47,111,230,.8), inset 0 0 0 1px rgba(232,200,122,.3);
+    display:flex;align-items:center;justify-content:center;gap:9px;
+  }
+  .submit:hover{transform:translateY(-2px);}
+  .submit:disabled{opacity:.7;cursor:not-allowed;transform:none;}
+  .cancel{
+    padding:15px 18px;border:1px solid var(--glass-brd);border-radius:14px;background:transparent;
+    color:var(--muted);font-weight:500;cursor:pointer;display:none;transition:.15s;
+  }
+  .cancel:hover{background:rgba(255,255,255,.05);color:var(--ink);}
+  .cancel.show{display:block;}
+
+  /* Button spinner */
+  .spin{width:17px;height:17px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:rot .7s linear infinite;display:none;}
+  .spin.show{display:inline-block;}
+  @keyframes rot{to{transform:rotate(360deg);}}
+
+  /* Toast */
+  .toast{margin-top:16px;padding:13px 15px;border-radius:12px;font-size:.88rem;font-weight:500;display:none;}
+  .toast.show{display:block;animation:pop .3s ease;}
+  .toast.ok{background:rgba(90,214,160,.12);border:1px solid rgba(90,214,160,.4);color:var(--ok);}
+  .toast.err{background:rgba(255,122,138,.12);border:1px solid rgba(255,122,138,.4);color:var(--danger);}
+  @keyframes pop{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+  /* Recent list */
+  .recent-wrap{position:relative;min-height:90px;}
+  .order{
+    border:1px solid var(--glass-brd);border-radius:15px;padding:15px 16px;margin-bottom:12px;
+    background:rgba(8,18,40,.4);transition:.18s;
+  }
+  .order:hover{border-color:rgba(91,157,255,.4);}
+  .order-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;flex-wrap:wrap;}
+  .order-id{font-weight:600;color:var(--gold);font-size:.92rem;letter-spacing:.4px;}
+  .order-recv{color:var(--ink);font-size:.92rem;}
+  .order-recv b{color:var(--muted);font-weight:400;font-size:.8rem;}
+  .order-time{font-size:.74rem;color:var(--muted);}
+  .items-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+  .chip{
+    background:rgba(91,157,255,.12);border:1px solid rgba(91,157,255,.25);color:#cfe0ff;
+    padding:4px 10px;border-radius:8px;font-size:.8rem;
+  }
+  .chip span{color:var(--gold);font-weight:600;margin-left:4px;}
+  .order-remarks{font-size:.82rem;color:var(--muted);margin-top:5px;}
+  .order-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px;flex-wrap:wrap;}
+  .countdown{font-size:.76rem;color:var(--ok);font-weight:500;}
+  .countdown.locked{color:#7184a8;}
+  .edit-btn{
+    border:1px solid rgba(232,200,122,.45);background:rgba(232,200,122,.1);color:var(--gold);
+    padding:7px 16px;border-radius:10px;font-size:.82rem;font-weight:600;cursor:pointer;transition:.15s;
+  }
+  .edit-btn:hover{background:rgba(232,200,122,.2);}
+  .locked-tag{font-size:.78rem;color:#7184a8;display:flex;align-items:center;gap:5px;}
+
+  /* List loader overlay */
+  .loader{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    background:rgba(8,18,40,.35);backdrop-filter:blur(2px);border-radius:14px;z-index:5;
+  }
+  .loader.hide{display:none;}
+  .ring{width:38px;height:38px;border:3.5px solid rgba(91,157,255,.25);border-top-color:var(--blue);border-radius:50%;animation:rot .8s linear infinite;}
+  .loader p{font-size:.82rem;color:var(--muted);letter-spacing:.3px;}
+  .empty{text-align:center;color:var(--muted);font-size:.86rem;padding:24px 0;}
+
+  .foot{text-align:center;margin-top:22px;font-size:.72rem;color:#6b80a6;}
+
+  @media (max-width:480px){
+    h1{font-size:1.22rem;}
+    .card{padding:20px 16px;}
+    .item-row .qty{width:70px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">P</div>
+      <div>
+        <h1>Purchase Entry</h1>
+        <div class="h-sub">SP Mines — procurement</div>
+      </div>
+    </div>
+    <span class="oid-badge" id="orderId">REQ-••••</span>
+  </div>
+
+  <!-- ===== Entry / Edit form ===== -->
+  <div class="card">
+    <div class="card-title">
+      <h2 id="formTitle">New Purchase</h2>
+      <span class="edit-flag" id="editFlag">Editing</span>
+    </div>
+
+    <div class="field">
+      <label>Requirement Receiver Name</label>
+      <input type="text" id="receiver" placeholder="e.g. Sam" autocomplete="off">
+    </div>
+
+    <div class="field items-head">
+      <label>Items</label>
+      <div id="itemList"></div>
+      <button class="add" id="addItem" type="button">+ Add Item</button>
+    </div>
+
+    <div class="field">
+      <label>Remarks</label>
+      <textarea id="remarks" placeholder="Urgency / specs / notes..."></textarea>
+    </div>
+
+    <div class="btn-row">
+      <button class="submit" id="submitBtn" type="button">
+        <span class="spin" id="spin"></span>
+        <span id="submitLabel">Submit Purchase</span>
+      </button>
+      <button class="cancel" id="cancelBtn" type="button">Cancel</button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <!-- ===== Recent 10 ===== -->
+  <div class="card">
+    <div class="card-title">
+      <h2>Recent Purchases</h2>
+      <span class="h-sub" id="recentHint">last 10</span>
+    </div>
+    <div class="recent-wrap">
+      <div class="loader" id="loader"><div class="ring"></div><p>Loading purchases…</p></div>
+      <div id="recentList"></div>
+    </div>
+  </div>
+
+  <p class="foot">Built by Somnath Karmakar · edit window 2 hours</p>
+</div>
+
+<script>
+  // ============ CONFIG ============
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbz0kXpsdT-kefjCR0aHlpju1xQUzJoLOJJe4tnI2V9buim3gCbZYyAgHmQr_lgOcdi4/exec';
+  const EDIT_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours (UI mirror; server enforces too)
+
+  // ============ STATE ============
+  let editingId = null;       // null = create mode, else editing this orderId
+  let recent = [];            // last fetched orders
+  let tick = null;            // countdown interval
+
+  // ============ ELEMENTS ============
+  const $ = (id) => document.getElementById(id);
+  const itemList = $('itemList');
+
+  // ============ ITEM ROWS ============
+  function addRow(name = '', qty = '') {
+    const row = document.createElement('div');
+    row.className = 'item-row';
+    row.innerHTML = `
+      <input class="name" type="text" placeholder="Item name" value="${escapeAttr(name)}" autocomplete="off">
+      <input class="qty" type="number" min="1" placeholder="Qty" value="${escapeAttr(qty)}">
+      <button class="del" type="button" title="Remove">&times;</button>`;
+    row.querySelector('.del').onclick = () => {
+      if (itemList.children.length > 1) row.remove();
+      else { row.querySelector('.name').value = ''; row.querySelector('.qty').value = ''; }
+    };
+    itemList.appendChild(row);
+  }
+  function getItems() {
+    return [...itemList.querySelectorAll('.item-row')]
+      .map(r => ({ name: r.querySelector('.name').value.trim(), qty: r.querySelector('.qty').value.trim() }))
+      .filter(i => i.name !== '');
+  }
+  function resetItems(items) {
+    itemList.innerHTML = '';
+    if (items && items.length) items.forEach(i => addRow(i.name, i.qty));
+    else addRow();
+  }
+
+  $('addItem').onclick = () => addRow();
+  resetItems();
+
+  // ============ TOAST ============
+  function toast(msg, kind) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + (kind || 'ok');
+    if (kind === 'ok') setTimeout(() => t.classList.remove('show'), 4000);
+  }
+
+  // ============ MODE SWITCH ============
+  function enterCreateMode() {
+    editingId = null;
+    $('formTitle').textContent = 'New Purchase';
+    $('editFlag').classList.remove('show');
+    $('cancelBtn').classList.remove('show');
+    $('submitLabel').textContent = 'Submit Purchase';
+    $('orderId').textContent = 'REQ-••••';
+    $('receiver').value = '';
+    $('remarks').value = '';
+    resetItems();
+  }
+  function enterEditMode(order) {
+    editingId = order.orderId;
+    $('formTitle').textContent = 'Edit Purchase';
+    $('editFlag').classList.add('show');
+    $('cancelBtn').classList.add('show');
+    $('submitLabel').textContent = 'Update Purchase';
+    $('orderId').textContent = order.orderId;
+    $('receiver').value = order.receiver || '';
+    $('remarks').value = order.remarks || '';
+    resetItems(order.items);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  $('cancelBtn').onclick = enterCreateMode;
+
+  // ============ SUBMIT (create or update) ============
+  $('submitBtn').onclick = () => {
+    const receiver = $('receiver').value.trim();
+    const remarks = $('remarks').value.trim();
+    const items = getItems();
+
+    if (!receiver) { toast('Receiver naam daalo', 'err'); return; }
+    if (items.length === 0) { toast('Kam se kam 1 item daalo', 'err'); return; }
+
+    const body = editingId
+      ? { action: 'update', orderId: editingId, receiver, items, remarks }
+      : { action: 'create', receiver, items, remarks };
+
+    setLoading(true);
+    fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight
+      body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(res => {
+      if (res.ok) {
+        toast(editingId ? `✓ Updated ${res.order.orderId}` : `✓ Saved ${res.order.orderId} (${res.order.items.length} item${res.order.items.length>1?'s':''})`, 'ok');
+        enterCreateMode();
+        loadRecent();
+      } else {
+        toast('✕ ' + (res.error || 'Failed'), 'err');
+      }
+    })
+    .catch(err => toast('✕ Network error — URL/access sahi hai? ' + err, 'err'))
+    .finally(() => setLoading(false));
+  };
+
+  function setLoading(on) {
+    $('submitBtn').disabled = on;
+    $('spin').classList.toggle('show', on);
+  }
+
+  // ============ RECENT 10 ============
+  function loadRecent() {
+    $('loader').classList.remove('hide');
+    fetch(GAS_URL + '?action=list')
+      .then(r => r.json())
+      .then(res => {
+        recent = (res.ok && res.orders) ? res.orders : [];
+        renderRecent();
+      })
+      .catch(() => {
+        $('recentList').innerHTML = '<div class="empty">Could not load. URL/access check karo.</div>';
+      })
+      .finally(() => $('loader').classList.add('hide'));
+  }
+
+  function renderRecent() {
+    const box = $('recentList');
+    if (!recent.length) { box.innerHTML = '<div class="empty">No purchases yet.</div>'; return; }
+
+    box.innerHTML = recent.map(o => {
+      const created = o.createdAt ? new Date(o.createdAt) : null;
+      const timeStr = created ? created.toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+      const msLeft = liveMsLeft(o);
+      const editable = msLeft > 0;
+      const chips = (o.items || []).map(i =>
+        `<span class="chip">${escapeHtml(i.name)}<span>×${escapeHtml(String(i.qty))}</span></span>`).join('');
+      const remarks = o.remarks ? `<div class="order-remarks">📝 ${escapeHtml(o.remarks)}</div>` : '';
+      const foot = editable
+        ? `<span class="countdown" data-cd="${o.orderId}">⏳ Edit for ${clock(msLeft)}</span>
+           <button class="edit-btn" data-edit="${o.orderId}">Edit</button>`
+        : `<span class="locked-tag">🔒 Locked (2h over)</span>`;
+      return `<div class="order">
+        <div class="order-top">
+          <span class="order-id">${escapeHtml(o.orderId)}</span>
+          <span class="order-time">${timeStr}</span>
+        </div>
+        <div class="order-recv"><b>Receiver:</b> ${escapeHtml(o.receiver || '-')}</div>
+        <div class="items-chips">${chips}</div>
+        ${remarks}
+        <div class="order-foot">${foot}</div>
+      </div>`;
+    }).join('');
+
+    box.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.onclick = () => {
+        const o = recent.find(x => String(x.orderId) === btn.getAttribute('data-edit'));
+        if (!o) return;
+        if (liveMsLeft(o) <= 0) { toast('✕ 2 ghante over — edit nahi ho sakta', 'err'); loadRecent(); return; }
+        enterEditMode(o);
+      };
+    });
+  }
+
+  // live remaining time from createdAt (so countdown is accurate)
+  function liveMsLeft(o) {
+    if (!o.createdAt) return 0;
+    return Math.max(0, EDIT_WINDOW_MS - (Date.now() - new Date(o.createdAt).getTime()));
+  }
+
+  // countdown ticker — updates labels each second, flips to Locked at 0
+  function startTicker() {
+    if (tick) clearInterval(tick);
+    tick = setInterval(() => {
+      let needRerender = false;
+      recent.forEach(o => {
+        const el = document.querySelector(`[data-cd="${o.orderId}"]`);
+        const ms = liveMsLeft(o);
+        if (el) {
+          if (ms <= 0) needRerender = true;
+          else el.textContent = '⏳ Edit for ' + clock(ms);
+        }
+      });
+      if (needRerender) renderRecent();
+    }, 1000);
+  }
+
+  function clock(ms) {
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    return (h > 0 ? pad(h) + ':' : '') + pad(m) + ':' + pad(sec);
+  }
+
+  // ============ UTILS ============
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function escapeAttr(s){ return escapeHtml(s); }
+
+  // ============ INIT ============
+  loadRecent();
+  startTicker();
+</script>
+</body>
+</html>
