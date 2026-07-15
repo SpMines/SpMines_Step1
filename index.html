@@ -180,6 +180,11 @@
       <input type="text" id="receiver" placeholder="e.g. Store Keeper" autocomplete="off">
     </div>
 
+    <div class="field">
+      <label>Receiver Name</label>
+      <input type="text" id="receiverName" placeholder="e.g. Ramesh Kumar" autocomplete="off">
+    </div>
+
     <div class="field items-head">
       <label>Items</label>
       <div id="itemList"></div>
@@ -314,6 +319,7 @@ const Form = {
     $('submitLabel').textContent = 'Submit Purchase';
     $('orderId').textContent = 'REQ-••••';
     $('receiver').value = '';
+    $('receiverName').value = '';
     $('remarks').value = '';
     ItemRows.reset();
   },
@@ -325,22 +331,24 @@ const Form = {
     $('submitLabel').textContent = 'Update Purchase';
     $('orderId').textContent = order.orderId;
     $('receiver').value = order.receiver || '';
+    $('receiverName').value = order.receiverName || '';
     $('remarks').value = order.remarks || '';
     ItemRows.reset(order.items);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
   submit() {
-    const receiver = $('receiver').value.trim();
-    const remarks  = $('remarks').value.trim();
-    const items    = ItemRows.read();
+    const receiver     = $('receiver').value.trim();
+    const receiverName = $('receiverName').value.trim();
+    const remarks      = $('remarks').value.trim();
+    const items        = ItemRows.read();
 
-    if (!receiver)        return Toast.show('Please enter the receiver name.', 'err');
+    if (!receiver)        return Toast.show('Please enter the requirement receiver name.', 'err');
     if (items.length === 0) return Toast.show('Please add at least one item.', 'err');
 
     const body = state.editingId
-      ? { action: 'update', orderId: state.editingId, receiver, items, remarks }
-      : { action: 'create', receiver, items, remarks };
+      ? { action: 'update', orderId: state.editingId, receiver, receiverName, items, remarks }
+      : { action: 'create', receiver, receiverName, items, remarks };
 
     this._setLoading(true);
     Api.post(body)
@@ -401,7 +409,8 @@ const Recent = {
           <span class="order-id">${esc(o.orderId)}</span>
           <span class="order-time">${time}</span>
         </div>
-        <div class="order-recv"><b>Receiver:</b> ${esc(o.receiver || '-')}</div>
+        <div class="order-recv"><b>Requirement Receiver:</b> ${esc(o.receiver || '-')}</div>
+        <div class="order-recv"><b>Receiver Name:</b> ${esc(o.receiverName || '-')}</div>
         <div class="items-chips">${chips}</div>
         ${remarks}
         <div class="order-foot">${foot}</div>
